@@ -1,0 +1,158 @@
+#Practical Machine Learning Course Project
+Amrit Juneja
+==============================================================================
+
+##Executive Summary
+This project utilizes data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. It is an extension of sorts of the quantified self movement wherein the researchers have attempted to quantify how well a particular activity is performed rather than just how much of a particular activity. The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+
+## 1. Loading and Processing the Data
+I have already downloaded the csv training and test data files and set the working directory to the folder containing those files
+
+```{r, echo=TRUE}
+train_in <- read.csv('./pml-training.csv', header=T)
+valid_in <- read.csv('./pml-testing.csv', header=T)
+dim(train_in)
+dim(valid_in)
+head(train_in)
+```
+
+## 2. Loading all the requisite libraries
+
+```{r, echo=TRUE}
+library(e1071)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(gbm)
+```
+
+## 3. Cleaning the input training and test data sets 
+The data is cleaned in the following 3 steps:
+1. Remove variables with missing (na) values
+2. Remove the first seven variables as they do not have much impact on the outcome variable classe
+3. Remove variables which have near zero variance (only applied on the training data set)
+
+```{r, echo = TRUE}
+trainData<- train_in[, colSums(is.na(train_in)) == 0]
+validData <- valid_in[, colSums(is.na(valid_in)) == 0]
+trainData <- trainData[, -c(1:7)]
+validData <- validData[, -c(1:7)]
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+dim(trainData)
+dim(validData)
+```
+
+## 4. Splitting the training data set for building prediction model
+The training data is prepared for prediction by splitting it into 70% as train data and 30% as test data.
+Note that the original test data with cases has been saved as validData and will remain as is.
+
+```{r, echo=TRUE}
+set.seed(12345) 
+inTrain <- createDataPartition(trainData$classe, p = 0.75, list = FALSE)
+trainData <- trainData[inTrain, ]
+testData <- trainData[-inTrain, ]
+dim(trainData)
+dim(testData)
+```
+
+## 5. Finding highly correlated variables
+Before building the predictive model, variables which are highly correlated have been identified using a correlation plot on the training data set. In addition, variables with correlation of greater than 0.75 have been listed
+
+```{r, echo=TRUE}
+cormatrix <- cor(trainData[, -53])
+corrplot(cormatrix, order = "FPC", method = "color", type = "upper", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+highlyCorrelated = findCorrelation(cormatrix, cutoff=0.75)
+names(trainData)[highlyCorrelated]
+```
+
+## 6. Model Building
+Three different algorithms have been used to arrive at the most suited prediction model:
+1. Classification Trees
+2. Random Forests
+3. Generalized Boosted Model (GBM)
+
+### 6.1 Classification Trees
+
+Building the model and plotting the dendogram:
+```{r, echo=TRUE}
+set.seed(12345)
+decisionTreeMod1 <- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(decisionTreeMod1)
+```
+
+Validating the model:
+```{r, echo=TRUE}
+predictTreeMod1 <- predict(decisionTreeMod1, testData, type = "class")
+cmtree <- confusionMatrix(predictTreeMod1, testData$classe)
+cmtree
+```
+
+Checking accuracy by plotting the confusion matrix
+```{r, echo=TRUE}
+plot(cmtree$table, col = cmtree$byClass, 
+     main = paste("Decision Tree - Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+```
+
+The above plot shows that the accuracy at 0.7345 which is low and has a considerable out-of-sample error of ~27% 
+
+### 6.2 Random Forest
+
+Building the model
+```{r, echo=TRUE}
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modRF1 <- train(classe ~ ., data=trainData, method="rf", trControl=controlRF)
+modRF1$finalModel
+```
+
+Validating the obtained RF model on Test Data and finding the accuracy
+```{r, echo=TRUE}
+predictRF1 <- predict(modRF1, newdata=testData)
+cmrf <- confusionMatrix(predictRF1, testData$classe)
+cmrf
+```
+
+The accuracy rate of 1 is very high implying an out of sample error of 0. However, this may be due to overfitting as well.
+
+Plotting the model
+```{r, echo=TRUE}
+plot(modRF1)
+plot(cmrf$table, col = cmrf$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+```
+
+### 6.3 Generalized Boosted Regression Model
+
+Building the model
+```{r, echo=TRUE}
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=trainData, method = "gbm", trControl = controlGBM, verbose = FALSE)
+modGBM$finalModel
+print(modGBM)
+```
+
+Validating the model on the test data and determining accuracy
+```{r, echo=TRUE}
+predictGBM <- predict(modGBM, newdata=testData)
+cmGBM <- confusionMatrix(predictGBM, testData$classe)
+cmGBM
+```
+
+The accuracy for this model is also very high at 0.9777 implying an out of sample error of .0223
+
+## 7. Application of Final Model on Validation Data (Original test data set of 20 cases)
+On the basis of accuracy rates, random forest model (6.2) is the best-suited model for prediction of classe variable in the dataset
+```{r, echo=TRUE}
+Results <- predict(modRF1, newdata=validData)
+Results
+```
+
+
+
+
